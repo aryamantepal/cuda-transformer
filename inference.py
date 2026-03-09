@@ -21,7 +21,7 @@ NUM_LAYERS     = 6
 D_FF           = 2048
 MAX_LEN        = 512
 
-PROMPT_LEN     = 128
+PROMPT_LEN     = 256
 MAX_NEW_TOKENS = 200
 WARMUP_STEPS   = 5
 # ─────────────────────────────────────────────────────────────────────────────
