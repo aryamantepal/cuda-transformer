@@ -50,14 +50,11 @@ class MultiHeadAttention(nn.Module):
         else:
             k, v = k_new, v_new
 
-        # (B, H, T_q, T_k)
-        sims = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
-
-        if mask is not None:
-            sims = sims.masked_fill(mask.unsqueeze(0).unsqueeze(0), -1e9)
-
-        attn_probs = F.softmax(sims, dim=-1)
-        attn_out = torch.matmul(attn_probs, v)
+        # Prefill/training (no cache): q and k have the same T, causal mask is correct.
+        # Decode (cache set): q is (B,H,1,head_dim), k is (B,H,T_total,head_dim).
+        #   is_causal=True here would only let the single query attend to k[0] — wrong.
+        #   is_causal=False is correct: the new token attends to all cached positions.
+        attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=(kv_cache is None))
         attn_out = attn_out.transpose(1, 2).contiguous().view(B, T, C)
 
         updated_cache = (k, v)
