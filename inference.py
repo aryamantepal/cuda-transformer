@@ -21,8 +21,8 @@ NUM_LAYERS     = 6
 D_FF           = 2048
 MAX_LEN        = 512
 
-PROMPT_LEN     = 10
-MAX_NEW_TOKENS = 50
+PROMPT_LEN     = 128
+MAX_NEW_TOKENS = 200
 WARMUP_STEPS   = 5
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -126,19 +126,19 @@ def main():
     print_results("KV-CACHE", elapsed_kv)
 
     # ── 3. KV-cache + torch.compile ──────────────────────────────────────────
-    # torch.compile traces and fuses ops (matmul+softmax, layernorm+add, etc.)
-    # dynamic=True tells the compiler to handle variable sequence lengths
-    # without recompiling every time T changes.
+    # Compile only the individual layers, not the full generate loop.
+    # The generate loop manages growing kv_cache tensors (new shape each step)
+    # which would cause inductor to recompile on every iteration if we compiled
+    # the whole model. Compiling per-layer keeps tensor shapes stable inside
+    # each compiled unit (single token in, fixed d_model out).
     model = build_model(device)
-    # inductor (default backend) tries to compile Metal shaders on MPS and
-    # fails with a missing header. aot_eager captures + fuses the graph
-    # without generating device-specific code, so it works everywhere.
     backend = "aot_eager" if device.type == "mps" else "inductor"
-    model = torch.compile(model, dynamic=True, backend=backend)
+    for i, layer in enumerate(model.layers):
+        model.layers[i] = torch.compile(layer, dynamic=True, backend=backend)
 
     print("=" * 50)
     print(f"  Compiling... backend={backend} (first warmup will be slow — that's normal)")
-    warmup(model, start_tokens, device)           # compilation happens here
+    warmup(model, start_tokens, device)
     elapsed_compiled = bench_with_cache(model, start_tokens, device)
 
     print_results("KV-CACHE + torch.compile", elapsed_compiled)
