@@ -107,7 +107,7 @@ def main():
     print(f"Device: {device}")
     print(f"torch version: {torch.__version__}\n")
 
-    start_tokens = torch.randint(0, NUM_TOKENS, (1, PROMPT_LEN), device=device)
+    start_tokens = torch.randint(0, NUM_TOKENS, (32, PROMPT_LEN), device=device)
 
     # ── 1. No-cache baseline ─────────────────────────────────────────────────
     model = build_model(device)
