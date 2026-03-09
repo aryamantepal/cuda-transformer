@@ -1,0 +1,24 @@
+Device: mps
+torch version: 2.10.0
+
+==================================================
+  NO KV-CACHE (baseline)
+  Tokens/sec : 84.7
+  ms/token   : 11.80
+  Total      : 0.590s
+==================================================
+  KV-CACHE
+  Tokens/sec : 172.5
+  ms/token   : 5.80
+  Total      : 0.290s
+==================================================
+  Compiling... backend=aot_eager (first warmup will be slow — that's normal)
+  KV-CACHE + torch.compile
+  Tokens/sec : 19.3
+  ms/token   : 51.82
+  Total      : 2.591s
+==================================================
+  KV-cache speedup          : 2.04x
+  compile speedup (vs cache): 0.11x
+  compile speedup (vs base) : 0.23x
+==================================================
