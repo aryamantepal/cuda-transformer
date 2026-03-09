@@ -143,11 +143,30 @@ def main():
 
     print_results("KV-CACHE + torch.compile", elapsed_compiled)
 
+    # ── 4. KV-cache + FP16 ───────────────────────────────────────────────────
+    # model.half() casts all weights and activations to float16.
+    # On T4, tensor cores run FP16 at ~8x the throughput of FP32.
+    # start_tokens must also be float16-compatible — embeddings handle this
+    # automatically since they take int indices and output float tensors.
+    model = build_model(device)
+    model = model.half()
+
+    # input tokens stay int64 — only the float tensors (weights/activations) go to fp16
+    start_tokens_fp16 = start_tokens  # no change needed, embedding handles it
+    print("=" * 50)
+    print("  FP16 model loaded")
+    warmup(model, start_tokens_fp16, device)
+    elapsed_fp16 = bench_with_cache(model, start_tokens_fp16, device)
+
+    print_results("KV-CACHE + FP16", elapsed_fp16)
+
     # ── Summary ──────────────────────────────────────────────────────────────
     print("=" * 50)
-    print(f"  KV-cache speedup          : {elapsed_no_cache / elapsed_kv:.2f}x")
-    print(f"  compile speedup (vs cache): {elapsed_kv / elapsed_compiled:.2f}x")
-    print(f"  compile speedup (vs base) : {elapsed_no_cache / elapsed_compiled:.2f}x")
+    print(f"  KV-cache speedup           : {elapsed_no_cache / elapsed_kv:.2f}x")
+    print(f"  compile speedup (vs cache) : {elapsed_kv / elapsed_compiled:.2f}x")
+    print(f"  compile speedup (vs base)  : {elapsed_no_cache / elapsed_compiled:.2f}x")
+    print(f"  FP16 speedup (vs cache)    : {elapsed_kv / elapsed_fp16:.2f}x")
+    print(f"  FP16 speedup (vs base)     : {elapsed_no_cache / elapsed_fp16:.2f}x")
     print("=" * 50)
 
 
