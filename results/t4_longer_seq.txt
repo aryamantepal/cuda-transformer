@@ -1,0 +1,24 @@
+Device: cuda
+torch version: 2.10.0+cu128
+
+==================================================
+  NO KV-CACHE (baseline)
+  Tokens/sec : 161.4
+  ms/token   : 6.19
+  Total      : 1.239s
+==================================================
+  KV-CACHE
+  Tokens/sec : 296.3
+  ms/token   : 3.37
+  Total      : 0.675s
+==================================================
+  Compiling... backend=inductor (first warmup will be slow — that's normal)
+  KV-CACHE + torch.compile
+  Tokens/sec : 49.1
+  ms/token   : 20.36
+  Total      : 4.072s
+==================================================
+  KV-cache speedup          : 1.84x
+  compile speedup (vs cache): 0.17x
+  compile speedup (vs base) : 0.30x
+==================================================
