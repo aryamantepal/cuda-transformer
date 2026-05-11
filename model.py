@@ -17,9 +17,6 @@ class PositionEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, word_embeddings, offset=0):
-        # Bug fix: use `offset` so cached inference gets the right positional encoding.
-        # During prefill: offset=0, T=full prompt length -> pe[0:T]
-        # During decode:  offset=current_seq_len, T=1 -> pe[offset:offset+1]
         T = word_embeddings.size(1)
         return word_embeddings + self.pe[offset:offset + T, :].unsqueeze(0).to(word_embeddings.device)
 
@@ -36,7 +33,17 @@ class MultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(d_model, d_model, bias=False)
         self.W_o = nn.Linear(d_model, d_model, bias=False)
 
-    def forward(self, x, mask=None, kv_cache=None):
+    def forward(self, x, kv_cache=None, cache_seqlen=0):
+        """
+        Training / prefill (kv_cache=None):
+            - x: (B, T, C), full sequence
+            - causal mask applied, no cache read/write
+
+        Static-cache decode (kv_cache=(k_buf, v_buf)):
+            - x: (B, 1, C), single new token
+            - writes k/v into pre-allocated buffers at position cache_seqlen
+            - attends over [:cache_seqlen+1] — buffer shape is always max_len, never reallocated
+        """
         B, T, C = x.shape
 
         q     = self.W_q(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
@@ -44,21 +51,20 @@ class MultiHeadAttention(nn.Module):
         v_new = self.W_v(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
         if kv_cache is not None:
-            k_prev, v_prev = kv_cache
-            k = torch.cat([k_prev, k_new], dim=2)
-            v = torch.cat([v_prev, v_new], dim=2)
+            k_buf, v_buf = kv_cache
+            # In-place write — buffer shape (B, H, max_len, head_dim) never changes.
+            k_buf[:, :, cache_seqlen:cache_seqlen + T, :] = k_new
+            v_buf[:, :, cache_seqlen:cache_seqlen + T, :] = v_new
+            # Slice only the filled portion for attention.
+            k = k_buf[:, :, :cache_seqlen + T, :]
+            v = v_buf[:, :, :cache_seqlen + T, :]
+            # Single query attends to all past tokens — is_causal=False is correct here.
+            attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=False)
         else:
-            k, v = k_new, v_new
+            attn_out = F.scaled_dot_product_attention(q, k_new, v_new, is_causal=True)
 
-        # Prefill/training (no cache): q and k have the same T, causal mask is correct.
-        # Decode (cache set): q is (B,H,1,head_dim), k is (B,H,T_total,head_dim).
-        #   is_causal=True here would only let the single query attend to k[0] — wrong.
-        #   is_causal=False is correct: the new token attends to all cached positions.
-        attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=(kv_cache is None))
         attn_out = attn_out.transpose(1, 2).contiguous().view(B, T, C)
-
-        updated_cache = (k, v)
-        return self.W_o(attn_out), updated_cache
+        return self.W_o(attn_out)
 
 
 class DecoderBlock(nn.Module):
@@ -73,11 +79,10 @@ class DecoderBlock(nn.Module):
             nn.Linear(d_ff, d_model),
         )
 
-    def forward(self, x, mask=None, kv_cache=None):
-        attn_out, updated_cache = self.attn(self.norm1(x), mask=mask, kv_cache=kv_cache)
-        x = x + attn_out
+    def forward(self, x, kv_cache=None, cache_seqlen=0):
+        x = x + self.attn(self.norm1(x), kv_cache=kv_cache, cache_seqlen=cache_seqlen)
         x = x + self.ffn(self.norm2(x))
-        return x, updated_cache
+        return x
 
 
 class DecoderOnlyTransformer(L.LightningModule):
@@ -93,38 +98,28 @@ class DecoderOnlyTransformer(L.LightningModule):
         self.fc_layer = nn.Linear(d_model, num_tokens)
         self.loss = nn.CrossEntropyLoss()
 
-    def forward(self, token_ids, kv_caches=None, offset=0):
+    def forward(self, token_ids, kv_caches=None, cache_seqlen=0):
         """
         Args:
-            token_ids:  (B, T) integer token ids
-            kv_caches:  list of (k, v) tensors per layer, or None for training/prefill
-            offset:     how many tokens have already been processed (for positional encoding)
+            token_ids:    (B, T) integer token ids
+            kv_caches:    list of (k_buf, v_buf) pre-allocated tensors per layer, or None
+            cache_seqlen: number of tokens already written into the cache buffers
         Returns:
-            logits:     (B, T, vocab)
-            new_caches: list of updated (k, v) per layer
+            logits: (B, T, vocab)
         """
-        B, T = token_ids.shape
-        x = self.we(token_ids)
-        x = self.pe(x, offset=offset)
+        x = self.pe(self.we(token_ids), offset=cache_seqlen)
 
-        # Causal mask: only over the current input tokens (T_q x T_q for prefill, 1x1 for decode)
-        mask = ~torch.tril(torch.ones(T, T, device=token_ids.device)).bool()
-
-        new_caches = []
         for i, layer in enumerate(self.layers):
             cache = kv_caches[i] if kv_caches is not None else None
-            x, updated_cache = layer(x, mask=mask, kv_cache=cache)
-            new_caches.append(updated_cache)
+            x = layer(x, kv_cache=cache, cache_seqlen=cache_seqlen)
 
-        x = self.norm(x)
-        logits = self.fc_layer(x)
-        return logits, new_caches
+        return self.fc_layer(self.norm(x))
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=3e-4)
 
     def training_step(self, batch, batch_idx):
         input_tokens, labels = batch
-        logits, _ = self.forward(input_tokens)
+        logits = self.forward(input_tokens)
         loss = self.loss(logits.view(-1, logits.size(-1)), labels.view(-1))
         return loss
