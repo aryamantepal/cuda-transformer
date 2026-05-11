@@ -36,7 +36,7 @@ MAX_LEN        = 512
 
 PROMPT_LEN     = 256
 MAX_NEW_TOKENS = 200
-WARMUP_STEPS   = 5
+WARMUP_STEPS   = 3
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -150,7 +150,7 @@ def main():
     print(f"Device: {device}")
     print(f"torch version: {torch.__version__}\n")
 
-    batch_size = 32
+    batch_size = 4 if device.type != "cuda" else 32
     start_tokens = torch.randint(0, NUM_TOKENS, (batch_size, PROMPT_LEN), device=device)
 
     # ── 1. No-cache baseline ──────────────────────────────────────────────────
