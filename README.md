@@ -22,43 +22,57 @@ All inference benchmarks are in `inference.py`. Training is in `train.py` (synth
 
 **What:** During autoregressive decode, each new token needs to attend to all previous tokens. Without a cache, you recompute keys and values for the entire sequence every step — O(n²) total work. A KV-cache stores those tensors and reuses them, making each decode step O(n) instead.
 
-**Result (T4 GPU, seq=256+200 tokens, batch=32):**
+**Result** (`results/t4_current.txt`: Tesla T4, torch 2.11.0, fp32, batch 32, 256-token prompt, 200 new tokens):
 
-| | Tokens/sec | ms/token |
-|---|---|---|
-| No cache | 161 | 6.19 |
-| KV-cache | 296 | 3.37 |
-| **Speedup** | **1.84x** | |
+| | ms per step | Tok/s per sequence | Tok/s total (x32) |
+|---|---|---|---|
+| No cache | 230.58 | 4.3 | 138 |
+| Static KV-cache | 5.68 | 175.9 | 5,629 |
+| **Speedup** | | **40.6x** | |
 
-The speedup grows with sequence length — at short sequences the overhead of managing the cache erodes the gain.
+Each step makes one token for each of the 32 sequences. The no-cache baseline is weaker than it needs to be: it computes output scores for every position and keeps only the last one, so part of the 40.6x comes from that waste.
 
 ### 2. torch.compile
 
-**What:** `torch.compile` lowers PyTorch operations into optimized kernels via TorchInductor. For inference, the promise is fused kernels, reduced Python overhead, and potentially CUDA graph capture.
+**What:** `torch.compile` turns PyTorch code into fused GPU kernels via TorchInductor.
 
-**The problem with the naive approach:** The original implementation grew the KV cache with `torch.cat` each decode step, producing a tensor of a new shape `(B, H, T+1, head_dim)` on every token. Even with `dynamic=True`, inductor recompiles when output shapes change — so it was recompiling on every single decode step. This made "compiled" inference 6-100x *slower* than the baseline in initial results.
+**What the logs show** (`results/t4_compile_before.txt` vs `results/t4_compile_after.txt`, same settings as above, run with `TORCH_LOGS=recompiles`):
 
-**The fix — static KV cache buffers:** Pre-allocate fixed-size buffers `(B, H, max_len, head_dim)` before the decode loop. Each step, write new k/v in-place at position `cache_seqlen`, then slice `[:, :, :cache_seqlen+T]` for attention. The buffer tensor shape never changes; only a scalar endpoint changes. Inductor handles that with `dynamic=True` without recompiling.
+| | Before: growing `torch.cat` cache, per-layer compile | After: static buffer, whole-model compile |
+|---|---|---|
+| Cache, no compile | 118.1 tok/s/seq | 175.4 tok/s/seq |
+| Cache + compile | 35.7 tok/s/seq (0.30x) | 176.9 tok/s/seq (1.01x) |
+| Recompiles | 2 | 1 |
 
-**Also changed:** Compile `model.forward` directly rather than individual layers. Per-layer compilation was a workaround for the shape-change problem that didn't actually solve it.
+- **The old code did not recompile on every step.** It recompiled twice (once when switching from prompt to decode, once on a memory-layout change), then `dynamic=True` handled the growing length.
+- **The change still fixed the slowdown:** compile went from 0.30x to about 1.0x. Several things changed at once (static buffer, whole-model compile, new attention code), so these runs can't say which one did it.
+- **Dropping `torch.cat` sped up the uncompiled path 1.48x.** `torch.cat` copies the whole cache every step; the static buffer writes in place.
+- **Compile still doesn't beat no compile** (0.98x and 1.01x across two runs). A decode step reads about 490 MB, which the T4 could do in about 1.5 ms, but a step takes 5.7 ms. Most of the time likely goes to launching hundreds of small GPU kernels, which compile's default mode doesn't remove. CUDA graphs (`mode="reduce-overhead"`) could, but they need the same tensor shapes every step.
 
 ### 3. FP16
 
-**What:** Cast all weights and activations to float16. On CUDA hardware with tensor cores (T4, A100, etc.), FP16 matrix multiplications run at ~8x the throughput of FP32. Memory bandwidth is halved, which matters a lot for memory-bound decode steps.
+**What:** Cast weights, activations and the KV cache to float16. Token indices stay int64.
 
-**Note:** Token indices stay int64 — only the float tensors (weights, activations, KV cache) move to FP16. The embedding layer handles the int→float transition automatically.
+**Result** (`results/t4_current.txt`): 3.29 ms per step vs 5.68 ms in fp32, a **1.73x** speedup (303.5 tok/s/seq, 9,712 total). Decode is limited by how fast it can read weights and cache from memory, not by math, so halving the bytes caps the gain near 2x. The T4's much larger fp16 math advantage barely matters here.
 
 ## Results
 
-Raw benchmark outputs are saved in `results/`:
+Raw benchmark outputs are in `results/`. The README quotes only the current logs.
 
-| File | Hardware | Notes |
-|---|---|---|
-| `baseline.txt` | M2 Mac (MPS) | Initial KV-cache experiment |
-| `flash_attn.txt` | M2 Mac (MPS) | After refactoring attention |
-| `kv_cache_plus_compile.txt` | M2 Mac (MPS) | Naive compile — shows regression |
-| `t4_baseline.txt` | T4 GPU | Short sequence (50 new tokens) |
-| `t4_longer_seq.txt` | T4 GPU | Longer sequence (200 new tokens, prompt=256) |
+**Current code** (Tesla T4, torch 2.11.0, batch 32, 256-token prompt, 200 new tokens):
+
+| File | Notes |
+|---|---|
+| `t4_current.txt` | All variants, plus run settings at the end |
+| `t4_compile_after.txt` | Same, with `TORCH_LOGS=recompiles` |
+| `t4_compile_before.txt` | Old code (commit `b13d144`), with `TORCH_LOGS=recompiles` |
+
+**Historical** (March 2026 code, before the static buffer and the prefill mask fix; most settings not recorded in the logs):
+
+| File | Hardware |
+|---|---|
+| `baseline.txt`, `flash_attn.txt`, `kv_cache_plus_compile.txt` | M2 Mac (MPS) |
+| `t4_baseline.txt`, `t4_longer_seq.txt`, `t4_long_prompt.txt`, `t4_fp16.txt`, `t4_fp16_batch32.txt` | T4 GPU |
 
 ## Running
 

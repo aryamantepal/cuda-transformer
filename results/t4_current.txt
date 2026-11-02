@@ -1,0 +1,92 @@
+W1102 21:52:00.695000 2503 torch/_inductor/utils.py:1731] [0/0_1] Not enough SMs to use max_autotune_gemm mode
+Device: cuda
+torch version: 2.11.0+cu130
+
+==================================================
+  NO KV-CACHE (baseline)
+  Tokens/sec : 4.3
+  ms/token   : 230.58
+  Total      : 46.116s
+==================================================
+  STATIC KV-CACHE
+  Tokens/sec : 175.9
+  ms/token   : 5.68
+  Total      : 1.137s
+==================================================
+  Compiling model.forward... backend=inductor
+  (first warmup will be slow — inductor traces on first call)
+  STATIC KV-CACHE + torch.compile
+  Tokens/sec : 172.2
+  ms/token   : 5.81
+  Total      : 1.162s
+==================================================
+  STATIC KV-CACHE + FP16
+  Tokens/sec : 303.5
+  ms/token   : 3.29
+  Total      : 0.659s
+==================================================
+  KV-cache speedup             : 40.56x
+  compile speedup (vs cache)   : 0.98x
+  compile speedup (vs base)    : 39.70x
+  FP16 speedup (vs cache)      : 1.73x
+  FP16 speedup (vs base)       : 69.99x
+==================================================
+
+============================================================
+CUDA Memory Summary (post-benchmark)
+============================================================
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 22        |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      | 313891 KiB |   3816 MiB |    793 GiB |    792 GiB |
+|       from large pool | 274048 KiB |   3790 MiB |    790 GiB |    790 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Active memory         | 313891 KiB |   3816 MiB |    793 GiB |    792 GiB |
+|       from large pool | 274048 KiB |   3790 MiB |    790 GiB |    790 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Requested memory      | 313891 KiB |   3815 MiB |    792 GiB |    792 GiB |
+|       from large pool | 274048 KiB |   3788 MiB |    790 GiB |    789 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   9156 MiB |  14704 MiB | 278558 MiB | 269402 MiB |
+|       from large pool |   9102 MiB |  14676 MiB | 278504 MiB | 269402 MiB |
+|       from small pool |     54 MiB |     54 MiB |     54 MiB |      0 MiB |
+|---------------------------------------------------------------------------|
+| Non-releasable memory |   1747 MiB |   1798 MiB |   2435 GiB |   2434 GiB |
+|       from large pool |   1746 MiB |   1796 MiB |   2432 GiB |   2431 GiB |
+|       from small pool |      1 MiB |      3 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Allocations           |     159    |     180    |   67689    |   67530    |
+|       from large pool |      29    |      48    |   16889    |   16860    |
+|       from small pool |     130    |     138    |   50800    |   50670    |
+|---------------------------------------------------------------------------|
+| Active allocs         |     159    |     180    |   67689    |   67530    |
+|       from large pool |      29    |      48    |   16889    |   16860    |
+|       from small pool |     130    |     138    |   50800    |   50670    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |      38    |      44    |     244    |     206    |
+|       from large pool |      11    |      30    |     217    |     206    |
+|       from small pool |      27    |      27    |      27    |       0    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |       9    |      12    |   30443    |   30434    |
+|       from large pool |       6    |       8    |    8986    |    8980    |
+|       from small pool |       3    |       6    |   21457    |   21454    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+
+GPU: Tesla T4
+torch: 2.11.0+cu130
+batch: 32
+prompt_len: 256
+new_tokens: 200
+warmup_steps: 3
+model: d_model=512 heads=8 layers=6 d_ff=2048 vocab=32000
