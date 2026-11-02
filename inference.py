@@ -1,21 +1,16 @@
 """
 Benchmarks autoregressive inference:
   1. No KV-cache (baseline)
-  2. KV-cache (growing torch.cat — dynamic allocation)
-  3. Static KV-cache (pre-allocated buffers, in-place writes)
-  4. Static KV-cache + torch.compile
-  5. Static KV-cache + FP16
+  2. Static KV-cache (pre-allocated buffers, in-place writes)
+  3. Static KV-cache + torch.compile
+  4. Static KV-cache + FP16
 
-The key insight for torch.compile:
-  The old approach grew the cache with torch.cat each step, producing a new tensor
-  of shape (B, H, T+1, head_dim) on every decode token.  Even with dynamic=True,
-  inductor recompiles whenever output shapes change — so it recompiled on every
-  single step, making 'compiled' inference 10-100x slower than baseline.
-
-  The fix: pre-allocate fixed-size buffers (B, H, max_len, head_dim) before the
-  loop and write k/v in-place at position cache_seqlen each step.  The buffer
-  shape is constant; only a scalar slice endpoint changes.  Inductor can handle
-  that with dynamic=True without recompiling.
+torch.compile notes (see results/t4_compile_*.txt):
+  The old code grew the cache with torch.cat each step and compiled each layer
+  separately.  It recompiled only twice, yet compiled decode ran at 0.30x.  With
+  pre-allocated buffers written in place and the whole forward compiled, it runs
+  at about 1.0x: decode is likely dominated by kernel-launch overhead, which
+  default-mode compile doesn't remove.
 
 Usage:
     python inference.py
@@ -172,8 +167,8 @@ def main():
     # ── 3. Static KV-cache + torch.compile ───────────────────────────────────
     # Compile model.forward (not individual layers).  The static buffer means
     # tensor shapes inside the graph are fixed; only cache_seqlen (a scalar)
-    # changes each step.  dynamic=True tells inductor to treat integer scalars
-    # as symbolic, so no recompilation across decode steps.
+    # changes each step.  dynamic=True treats it as symbolic, so decode steps
+    # share one compiled graph (prefill gets its own).
     model = build_model(device)
     backend = "aot_eager" if device.type == "mps" else "inductor"
     model.forward = torch.compile(model.forward, dynamic=True, backend=backend)
@@ -187,8 +182,8 @@ def main():
     print_results("STATIC KV-CACHE + torch.compile", elapsed_compiled)
 
     # ── 4. Static KV-cache + FP16 ────────────────────────────────────────────
-    # FP16 halves memory bandwidth pressure.  On T4, tensor cores run FP16
-    # gemms at ~8x FP32 throughput — the biggest single win on CUDA.
+    # FP16 halves the bytes read per decode step.  Decode is memory-bound, so
+    # the gain is capped near 2x (1.73x measured on T4).
     if device.type in ("cuda", "mps"):
         model = build_model(device, fp16=True)
         warmup_model(model, start_tokens, device, use_cache=True, dtype=torch.float16)

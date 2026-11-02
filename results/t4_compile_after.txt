@@ -1,0 +1,87 @@
+V1102 21:57:59.342000 4145 torch/_dynamo/guards.py:4760] [0/1] [__recompiles] Recompiling function forward in /content/cuda-transformer/model.py:113
+V1102 21:57:59.342000 4145 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     triggered by the following guard failure(s):
+V1102 21:57:59.342000 4145 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     - 0/0: cache_seqlen == 0  # elif cache_seqlen == 0:  # ontent/cuda-transformer/model.py:65 in forward (_dynamo/variables/tensor.py:1951 in evaluate_expr)
+Device: cuda
+torch version: 2.11.0+cu130
+
+==================================================
+  NO KV-CACHE (baseline)
+  Tokens/sec : 4.3
+  ms/token   : 232.82
+  Total      : 46.564s
+==================================================
+  STATIC KV-CACHE
+  Tokens/sec : 175.4
+  ms/token   : 5.70
+  Total      : 1.140s
+==================================================
+  Compiling model.forward... backend=inductor
+  (first warmup will be slow — inductor traces on first call)
+  STATIC KV-CACHE + torch.compile
+  Tokens/sec : 176.9
+  ms/token   : 5.65
+  Total      : 1.131s
+==================================================
+  STATIC KV-CACHE + FP16
+  Tokens/sec : 297.2
+  ms/token   : 3.37
+  Total      : 0.673s
+==================================================
+  KV-cache speedup             : 40.83x
+  compile speedup (vs cache)   : 1.01x
+  compile speedup (vs base)    : 41.18x
+  FP16 speedup (vs cache)      : 1.69x
+  FP16 speedup (vs base)       : 69.18x
+==================================================
+
+============================================================
+CUDA Memory Summary (post-benchmark)
+============================================================
+|===========================================================================|
+|                  PyTorch CUDA memory summary, device ID 0                 |
+|---------------------------------------------------------------------------|
+|            CUDA OOMs: 0            |        cudaMalloc retries: 22        |
+|===========================================================================|
+|        Metric         | Cur Usage  | Peak Usage | Tot Alloc  | Tot Freed  |
+|---------------------------------------------------------------------------|
+| Allocated memory      | 313891 KiB |   3816 MiB |    779 GiB |    779 GiB |
+|       from large pool | 274048 KiB |   3790 MiB |    777 GiB |    776 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Active memory         | 313891 KiB |   3816 MiB |    779 GiB |    779 GiB |
+|       from large pool | 274048 KiB |   3790 MiB |    777 GiB |    776 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Requested memory      | 313891 KiB |   3815 MiB |    779 GiB |    779 GiB |
+|       from large pool | 274048 KiB |   3788 MiB |    776 GiB |    776 GiB |
+|       from small pool |  39843 KiB |     52 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| GPU reserved memory   |   9156 MiB |  14704 MiB | 278558 MiB | 269402 MiB |
+|       from large pool |   9102 MiB |  14676 MiB | 278504 MiB | 269402 MiB |
+|       from small pool |     54 MiB |     54 MiB |     54 MiB |      0 MiB |
+|---------------------------------------------------------------------------|
+| Non-releasable memory |   1747 MiB |   1798 MiB |   2422 GiB |   2420 GiB |
+|       from large pool |   1746 MiB |   1796 MiB |   2419 GiB |   2417 GiB |
+|       from small pool |      1 MiB |      3 MiB |      2 GiB |      2 GiB |
+|---------------------------------------------------------------------------|
+| Allocations           |     159    |     180    |   67052    |   66893    |
+|       from large pool |      29    |      48    |   16512    |   16483    |
+|       from small pool |     130    |     138    |   50540    |   50410    |
+|---------------------------------------------------------------------------|
+| Active allocs         |     159    |     180    |   67052    |   66893    |
+|       from large pool |      29    |      48    |   16512    |   16483    |
+|       from small pool |     130    |     138    |   50540    |   50410    |
+|---------------------------------------------------------------------------|
+| GPU reserved segments |      38    |      44    |     244    |     206    |
+|       from large pool |      11    |      30    |     217    |     206    |
+|       from small pool |      27    |      27    |      27    |       0    |
+|---------------------------------------------------------------------------|
+| Non-releasable allocs |       9    |      12    |   30417    |   30408    |
+|       from large pool |       6    |       8    |    8984    |    8978    |
+|       from small pool |       3    |       6    |   21433    |   21430    |
+|---------------------------------------------------------------------------|
+| Oversize allocations  |       0    |       0    |       0    |       0    |
+|---------------------------------------------------------------------------|
+| Oversize GPU segments |       0    |       0    |       0    |       0    |
+|===========================================================================|
+

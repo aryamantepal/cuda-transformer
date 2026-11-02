@@ -1,0 +1,50 @@
+W1102 21:59:18.119000 4492 torch/_inductor/utils.py:1731] [0/0_1] Not enough SMs to use max_autotune_gemm mode
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles] Recompiling function forward in /content/before/model.py:76
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     triggered by the following guard failure(s):
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     - 0/0: kv_cache is None                                         # if kv_cache is not None:  # ontent/before/model.py:46 in forward
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     - User stack trace:
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     -   File "/content/before/model.py", line 77, in forward
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     -     attn_out, updated_cache = self.attn(self.norm1(x), mask=mask, kv_cache=kv_cache)
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     -   File "/content/before/model.py", line 46, in forward
+V1102 21:59:21.630000 4492 torch/_dynamo/guards.py:4760] [0/1] [__recompiles]     -     if kv_cache is not None:
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles] Recompiling function forward in /content/before/model.py:76
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     triggered by the following guard failure(s):
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     - 0/1: tensor 'kv_cache[0]' stride mismatch at index 1. expected 64, actual 16448
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     - 0/0: kv_cache is None                                         # if kv_cache is not None:  # ontent/before/model.py:46 in forward
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     - User stack trace:
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     -   File "/content/before/model.py", line 77, in forward
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     -     attn_out, updated_cache = self.attn(self.norm1(x), mask=mask, kv_cache=kv_cache)
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     -   File "/content/before/model.py", line 46, in forward
+V1102 21:59:24.106000 4492 torch/_dynamo/guards.py:4760] [0/2] [__recompiles]     -     if kv_cache is not None:
+Device: cuda
+torch version: 2.11.0+cu130
+
+==================================================
+  NO KV-CACHE (baseline)
+  Tokens/sec : 3.9
+  ms/token   : 258.57
+  Total      : 51.714s
+==================================================
+  KV-CACHE
+  Tokens/sec : 118.1
+  ms/token   : 8.47
+  Total      : 1.694s
+==================================================
+  Compiling... backend=inductor (first warmup will be slow — that's normal)
+  KV-CACHE + torch.compile
+  Tokens/sec : 35.7
+  ms/token   : 28.03
+  Total      : 5.605s
+==================================================
+  FP16 model loaded
+  KV-CACHE + FP16
+  Tokens/sec : 212.7
+  ms/token   : 4.70
+  Total      : 0.940s
+==================================================
+  KV-cache speedup           : 30.53x
+  compile speedup (vs cache) : 0.30x
+  compile speedup (vs base)  : 9.23x
+  FP16 speedup (vs cache)    : 1.80x
+  FP16 speedup (vs base)     : 54.99x
+==================================================
