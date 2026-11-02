@@ -39,10 +39,11 @@ class MultiHeadAttention(nn.Module):
             - x: (B, T, C), full sequence
             - causal mask applied, no cache read/write
 
-        Static-cache decode (kv_cache=(k_buf, v_buf)):
-            - x: (B, 1, C), single new token
-            - writes k/v into pre-allocated buffers at position cache_seqlen
-            - attends over [:cache_seqlen+1] — buffer shape is always max_len, never reallocated
+        Static cache (kv_cache=(k_buf, v_buf)):
+            - x: (B, T, C), T new tokens: the prompt at prefill, 1 token at decode
+            - writes k/v into pre-allocated buffers at [cache_seqlen, cache_seqlen+T)
+            - attends over [:cache_seqlen+T], causally masked when T > 1
+            - buffer shape is always max_len, never reallocated
         """
         B, T, C = x.shape
 
@@ -58,8 +59,19 @@ class MultiHeadAttention(nn.Module):
             # Slice only the filled portion for attention.
             k = k_buf[:, :, :cache_seqlen + T, :]
             v = v_buf[:, :, :cache_seqlen + T, :]
-            # Single query attends to all past tokens — is_causal=False is correct here.
-            attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+            if T == 1:
+                # Decode: the newest token may attend to everything in the cache.
+                attn_out = F.scaled_dot_product_attention(q, k, v)
+            elif cache_seqlen == 0:
+                # Prefill on an empty cache: q and k start at the same position.
+                attn_out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+            else:
+                # Chunked prefill: query i sits at absolute position cache_seqlen + i,
+                # so it may see keys 0..cache_seqlen + i. sdpa's is_causal assumes
+                # q and k start together, so build the shifted mask explicitly.
+                mask = torch.ones(T, cache_seqlen + T, dtype=torch.bool, device=x.device)
+                attn_out = F.scaled_dot_product_attention(
+                    q, k, v, attn_mask=mask.tril(diagonal=cache_seqlen))
         else:
             attn_out = F.scaled_dot_product_attention(q, k_new, v_new, is_causal=True)
 

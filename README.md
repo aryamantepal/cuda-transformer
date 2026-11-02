@@ -2,6 +2,8 @@
 
 A decoder-only transformer built from scratch to understand and benchmark the inference optimizations that actually matter in practice. The focus is on *why* each technique works, not just that it does — so each experiment isolates one variable and measures the result on real hardware.
 
+**Scope:** the model is untrained. `train.py` feeds it random tokens and random labels so training throughput and memory can be profiled, so its outputs are meaningless text. The benchmarks measure speed only (tokens/sec, ms/token), never output quality.
+
 ## Architecture
 
 Standard GPT-style decoder-only transformer, implemented in PyTorch + Lightning:
@@ -61,6 +63,12 @@ Raw benchmark outputs are saved in `results/`:
 ## Running
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Tests: cached inference must match the uncached forward pass
+python -m pytest tests
+
 # Training (synthetic data, profiling)
 python train.py
 

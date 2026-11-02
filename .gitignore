@@ -1,3 +1,10 @@
-*.pt
-*.json
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+
+# Training and profiling artifacts
 lightning_logs/
+*.pt
+*.ckpt
+trace*.json
